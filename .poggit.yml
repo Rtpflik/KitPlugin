@@ -1,0 +1,13 @@
+branches:
+  - main
+projects:
+  KitShop:
+    path: .
+    name: KitShop
+    version: 1.0.0
+    api: [5.0.0]
+    exclude:
+      - .replit
+      - replit.nix
+      - .gitignore
+      - .DS_Store
