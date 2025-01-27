@@ -1,9 +1,14 @@
 name: KitShop
-main: KitShop/Main
-version: 1.0.0
-api: [5.0.0]
-description: A Kit Shop plugin for PocketMine-MP
+version: 1.0.1
+api: 5.0.0
+main: KitShop\Main
+description: A plugin for managing kits and a shop GUI.
+author: YourName
 commands:
   kitshop:
-    description: Open the kit shop Menu
-    usage: "/kitshop"
+    description: Opens the KitShop GUI.
+    usage: /kitshop
+permissions:
+  kitshop.use:
+    default: true
+    description: Allows the player to use /kitshop
