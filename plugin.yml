@@ -1,0 +1,9 @@
+name: KitShop
+main: KitShop/Main
+version: 1.0.0
+api: [5.0.0]
+description: A Kit Shop plugin for PocketMine-MP
+commands:
+  kitshop:
+    description: Open the kit shop menu
+    usage: "/kitshop"
