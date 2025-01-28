@@ -1,0 +1,16 @@
+Starter:
+  price: 100
+  item_id: "stone_sword"
+  items:
+    - {id: "stone_sword", count: 1}
+    - {id: "bread", count: 16}
+Knight:
+  price: 500
+  item_id: "iron_sword"
+  items:
+    - {id: "iron_sword", count: 1}
+    - {id: "steak", count: 16}
+    - {id: "iron_helmet", count: 1}
+    - {id: "iron_chestplate", count: 1}
+    - {id: "iron_leggings", count: 1}
+    - {id: "iron_boots", count: 1}

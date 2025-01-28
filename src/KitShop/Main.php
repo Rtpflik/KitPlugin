@@ -1,31 +1,36 @@
 <?php
 
-declare(strict_types=1);
-
 namespace KitShop;
 
-use cooldogedev\BedrockEconomy\api\BedrockEconomyAPI;
-use cooldogedev\BedrockEconomy\libs\cooldogedev\libSQL\context\ClosureContext;
 use pocketmine\plugin\PluginBase;
-use pocketmine\event\Listener;
 use pocketmine\command\Command;
 use pocketmine\command\CommandSender;
 use pocketmine\player\Player;
+use pocketmine\item\ItemFactory;
+use pocketmine\item\Item;
+use pocketmine\inventory\Inventory;
+use pocketmine\network\mcpe\protocol\types\inventory\WindowTypes;
+use pocketmine\network\mcpe\protocol\types\inventory\NetworkInventoryAction;
+use pocketmine\network\mcpe\protocol\types\inventory\ItemStackWrapper;
+use pocketmine\network\mcpe\protocol\InventoryTransactionPacket;
+use pocketmine\network\mcpe\protocol\InventoryContentPacket;
+use pocketmine\utils\Config;
 use pocketmine\utils\TextFormat as TF;
+use cooldogedev\BedrockEconomy\api\BedrockEconomyAPI;
 
-class Main extends PluginBase implements Listener {
+class Main extends PluginBase {
 
-    // Kit prices
-    private array $kits = [
-        "Starter Kit" => 100,
-        "Gentleman’s Kit" => 500,
-        "Knight’s Kit" => 1000,
-        "Paladin Kit" => 2000,
-        "Warlord Kit" => 4000,
-        "Warlock Kit" => 8000
-    ];
+    private Config $kits;
+    private BedrockEconomyAPI $economy;
 
     public function onEnable(): void {
+        // Save and load kits.yml
+        $this->saveResource("kits.yml");
+        $this->kits = new Config($this->getDataFolder() . "kits.yml", Config::YAML);
+
+        // BedrockEconomy API
+        $this->economy = BedrockEconomyAPI::getInstance();
+
         $this->getLogger()->info(TF::GREEN . "KitShop plugin enabled!");
     }
 
@@ -34,67 +39,73 @@ class Main extends PluginBase implements Listener {
     }
 
     public function onCommand(CommandSender $sender, Command $command, string $label, array $args): bool {
-        if ($command->getName() === "kitshop") {
-            if ($sender instanceof Player) {
-                $this->openKitShop($sender);
-            } else {
+        if ($command->getName() === "kit") {
+            if (!$sender instanceof Player) {
                 $sender->sendMessage(TF::RED . "This command can only be used in-game.");
+                return true;
             }
+
+            $this->openKitMenu($sender);
             return true;
         }
         return false;
     }
 
-    private function openKitShop(Player $player): void {
-        $player->sendMessage(TF::YELLOW . "Available Kits:");
-        foreach ($this->kits as $kitName => $price) {
-            $player->sendMessage(TF::AQUA . "- " . $kitName . ": " . TF::GOLD . "$" . $price);
+    private function openKitMenu(Player $player): void {
+        $kits = $this->kits->getAll();
+        $inventorySize = ceil(count($kits) / 9) * 9;
+
+        $packet = new InventoryContentPacket();
+        $packet->windowId = 100;
+        $packet->items = [];
+
+        foreach ($kits as $kitName => $kitData) {
+            $item = ItemFactory::getInstance()->get($kitData["item_id"]);
+            $item->setCustomName(TF::AQUA . $kitName);
+            $item->setLore([
+                TF::GRAY . "Price: " . TF::GOLD . $kitData["price"],
+                TF::GRAY . "Click to purchase!"
+            ]);
+
+            $packet->items[] = ItemStackWrapper::legacy($item->getNetworkItemStack());
         }
-        $player->sendMessage(TF::GREEN . "Use /buykit <kitname> to purchase a kit.");
+
+        $player->getNetworkSession()->sendDataPacket($packet);
+
+        $player->sendMessage(TF::GREEN . "Kit menu opened!");
     }
 
-    public function buyKit(Player $player, string $kitName): void {
-        if (!isset($this->kits[$kitName])) {
-            $player->sendMessage(TF::RED . "Kit not found!");
+    private function attemptPurchase(Player $player, string $kitName): void {
+        $kits = $this->kits->getAll();
+        if (!isset($kits[$kitName])) {
+            $player->sendMessage(TF::RED . "Invalid kit selected.");
             return;
         }
 
-        $cost = $this->kits[$kitName];
-        BedrockEconomyAPI::getInstance()->getPlayerBalance($player->getName(), ClosureContext::create(
-            function (?int $balance) use ($player, $kitName, $cost): void {
-                if ($balance === null) {
-                    $player->sendMessage(TF::RED . "Unable to retrieve your balance.");
-                    return;
-                }
+        $kitData = $kits[$kitName];
+        $price = $kitData["price"];
 
-                if ($balance >= $cost) {
-                    BedrockEconomyAPI::getInstance()->subtractFromPlayerBalance($player->getName(), $cost, ClosureContext::create(
-                        function (bool $success) use ($player, $kitName): void {
-                            if ($success) {
-                                $player->sendMessage(TF::GREEN . "You have successfully purchased the " . $kitName . "!");
-                                // TODO: Give the player the kit here
-                            } else {
-                                $player->sendMessage(TF::RED . "An error occurred while processing your purchase.");
-                            }
-                        }
-                    ));
-                } else {
-                    $player->sendMessage(TF::RED . "You do not have enough money to buy the " . $kitName . ".");
-                }
+        $this->economy->getBalance($player->getName(), function (?int $balance) use ($player, $kitName, $kitData, $price): void {
+            if ($balance === null || $balance < $price) {
+                $player->sendMessage(TF::RED . "You do not have enough money to buy this kit!");
+                return;
             }
-        ));
+
+            $this->economy->subtractFromBalance($player->getName(), $price, function (bool $success) use ($player, $kitName, $kitData): void {
+                if ($success) {
+                    $this->giveKit($player, $kitName, $kitData);
+                    $player->sendMessage(TF::GREEN . "You successfully purchased the $kitName kit!");
+                } else {
+                    $player->sendMessage(TF::RED . "An error occurred while processing your purchase.");
+                }
+            });
+        });
     }
 
-    public function onCommandWithArgs(CommandSender $sender, string $label, array $args): bool {
-        if (strtolower($label) === "buykit" && $sender instanceof Player) {
-            if (count($args) === 0) {
-                $sender->sendMessage(TF::RED . "Usage: /buykit <kitname>");
-                return true;
-            }
-            $kitName = implode(" ", $args);
-            $this->buyKit($sender, $kitName);
-            return true;
+    private function giveKit(Player $player, string $kitName, array $kitData): void {
+        foreach ($kitData["items"] as $itemData) {
+            $item = ItemFactory::getInstance()->get($itemData["id"], $itemData["meta"] ?? 0, $itemData["count"] ?? 1);
+            $player->getInventory()->addItem($item);
         }
-        return false;
     }
 }
